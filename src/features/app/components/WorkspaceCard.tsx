@@ -1,8 +1,10 @@
 import type { MouseEvent } from "react";
 
-import type { WorkspaceInfo } from "../../../types";
+import type { BackendMode, WorkspaceInfo } from "../../../types";
 
 type WorkspaceCardProps = {
+  backendMode: BackendMode;
+  remoteBackendHost: string;
   workspace: WorkspaceInfo;
   workspaceName?: React.ReactNode;
   isActive: boolean;
@@ -23,6 +25,8 @@ type WorkspaceCardProps = {
 };
 
 export function WorkspaceCard({
+  backendMode,
+  remoteBackendHost,
   workspace,
   workspaceName,
   isActive,
@@ -37,11 +41,13 @@ export function WorkspaceCard({
   children,
 }: WorkspaceCardProps) {
   const contentCollapsedClass = isCollapsed ? " collapsed" : "";
+  const isRemote = backendMode === "remote";
+  const resolvedRemoteHost = remoteBackendHost.trim() || "127.0.0.1:4732";
 
   return (
     <div className="workspace-card">
       <div
-        className={`workspace-row ${isActive ? "active" : ""}`}
+        className={`workspace-row ${isActive ? "active" : ""}${isRemote ? " is-remote" : ""}`}
         role="button"
         tabIndex={0}
         onClick={() => onSelectWorkspace(workspace.id)}
@@ -57,6 +63,14 @@ export function WorkspaceCard({
           <div className="workspace-name-row">
             <div className="workspace-title">
               <span className="workspace-name">{workspaceName ?? workspace.name}</span>
+              {isRemote && (
+                <span
+                  className="workspace-remote-badge"
+                  title={`Remote backend: ${resolvedRemoteHost}. Workspace paths resolve on the daemon host.`}
+                >
+                  remote
+                </span>
+              )}
               <button
                 className={`workspace-toggle ${isCollapsed ? "" : "expanded"}`}
                 onClick={(event) => {

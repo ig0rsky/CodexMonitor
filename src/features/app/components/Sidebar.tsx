@@ -532,13 +532,15 @@ export function Sidebar({
                       ? "processing"
                       : "ready";
 
-                  return (
-                    <WorkspaceCard
-                      key={entry.id}
-                      workspace={entry}
-                      workspaceName={renderHighlightedName(entry.name)}
-                      isActive={entry.id === activeWorkspaceId}
-                      isCollapsed={isCollapsed}
+                    return (
+                      <WorkspaceCard
+                        key={entry.id}
+                        backendMode={backendMode}
+                        remoteBackendHost={remoteBackendHost}
+                        workspace={entry}
+                        workspaceName={renderHighlightedName(entry.name)}
+                        isActive={entry.id === activeWorkspaceId}
+                        isCollapsed={isCollapsed}
                       addMenuOpen={addMenuOpen}
                       addMenuWidth={ADD_MENU_WIDTH}
                       onSelectWorkspace={onSelectWorkspace}

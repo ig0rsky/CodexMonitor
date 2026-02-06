@@ -719,6 +719,18 @@
   min-width: 0;
 }
 
+.workspace-remote-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: var(--text-stronger);
+  flex-shrink: 0;
+}
+
 .workspace-toggle {
   border: none;
   background: transparent;

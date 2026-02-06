@@ -614,7 +614,19 @@ Changes:\n{diff}"
 pub(crate) async fn get_commit_message_prompt(
     workspace_id: String,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<String, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let response = remote_backend::call_remote(
+            &*state,
+            app,
+            "get_commit_message_prompt",
+            json!({ "workspaceId": workspace_id }),
+        )
+        .await?;
+        return serde_json::from_value(response).map_err(|err| err.to_string());
+    }
+
     // Get the diff from git
     let diff = crate::git::get_workspace_diff(&workspace_id, &state).await?;
 
@@ -662,6 +674,17 @@ pub(crate) async fn generate_commit_message(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<String, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let response = remote_backend::call_remote(
+            &*state,
+            app,
+            "generate_commit_message",
+            json!({ "workspaceId": workspace_id }),
+        )
+        .await?;
+        return serde_json::from_value(response).map_err(|err| err.to_string());
+    }
+
     // Get the diff from git
     let diff = crate::git::get_workspace_diff(&workspace_id, &state).await?;
 

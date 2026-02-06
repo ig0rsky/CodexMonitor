@@ -3,7 +3,12 @@ import Check from "lucide-react/dist/esm/icons/check";
 import Copy from "lucide-react/dist/esm/icons/copy";
 import Terminal from "lucide-react/dist/esm/icons/terminal";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { BranchInfo, OpenAppTarget, WorkspaceInfo } from "../../../types";
+import type {
+  BackendMode,
+  BranchInfo,
+  OpenAppTarget,
+  WorkspaceInfo,
+} from "../../../types";
 import type { ReactNode } from "react";
 import { revealInFileManagerLabel } from "../../../utils/platformPaths";
 import { BranchList } from "../../git/components/BranchList";
@@ -15,6 +20,8 @@ import { LaunchScriptEntryButton } from "./LaunchScriptEntryButton";
 import type { WorkspaceLaunchScriptsState } from "../hooks/useWorkspaceLaunchScripts";
 
 type MainHeaderProps = {
+  backendMode: BackendMode;
+  remoteBackendHost: string;
   workspace: WorkspaceInfo;
   parentName?: string | null;
   worktreeLabel?: string | null;
@@ -67,6 +74,8 @@ type MainHeaderProps = {
 };
 
 export function MainHeader({
+  backendMode,
+  remoteBackendHost,
   workspace,
   parentName = null,
   worktreeLabel = null,
@@ -121,6 +130,8 @@ export function MainHeader({
     () => findExactBranch(branches, trimmedQuery),
     [branches, trimmedQuery],
   );
+  const isRemote = backendMode === "remote";
+  const resolvedRemoteHost = remoteBackendHost.trim() || "127.0.0.1:4732";
   const canCreate = trimmedQuery.length > 0 && !exactMatch;
   const branchValidationMessage = useMemo(
     () => validateBranchName(trimmedQuery),
@@ -218,6 +229,14 @@ export function MainHeader({
               </button>
               {infoOpen && (
                 <div className="worktree-info-popover popover-surface" role="dialog">
+                  {isRemote && (
+                    <div
+                      className="worktree-info-banner is-remote"
+                      title="You are connected to a remote daemon. Workspace paths resolve on that host."
+                    >
+                      Remote daemon: <strong>{resolvedRemoteHost}</strong>
+                    </div>
+                  )}
                   {worktreeRename && (
                     <div className="worktree-info-rename">
                       <span className="worktree-info-label">Name</span>
@@ -304,11 +323,11 @@ export function MainHeader({
                       )}
                     </div>
                   )}
-                  <div className="worktree-info-title">Worktree</div>
-                  <div className="worktree-info-row">
-                    <span className="worktree-info-label">
-                      Terminal{parentPath ? " (repo root)" : ""}
-                    </span>
+                    <div className="worktree-info-title">Worktree</div>
+                    <div className="worktree-info-row">
+                      <span className="worktree-info-label">
+                        Terminal{isRemote ? " (remote)" : ""}{parentPath ? " (repo root)" : ""}
+                      </span>
                     <div className="worktree-info-command">
                       <code className="worktree-info-code">
                         {cdCommand}
@@ -330,21 +349,27 @@ export function MainHeader({
                       Open this worktree in your terminal.
                     </span>
                   </div>
-                  <div className="worktree-info-row">
-                    <span className="worktree-info-label">Reveal</span>
-                    <button
-                      type="button"
-                      className="worktree-info-reveal"
-                      onClick={async () => {
-                        await revealItemInDir(resolvedWorktreePath);
-                      }}
-                      data-tauri-drag-region="false"
-                    >
-                      {revealInFileManagerLabel()}
-                    </button>
+                    <div className="worktree-info-row">
+                      <span className="worktree-info-label">Reveal</span>
+                      {isRemote ? (
+                        <span className="worktree-info-subtle">
+                          Disabled in remote mode (path is on daemon host).
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="worktree-info-reveal"
+                          onClick={async () => {
+                            await revealItemInDir(resolvedWorktreePath);
+                          }}
+                          data-tauri-drag-region="false"
+                        >
+                          {revealInFileManagerLabel()}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
             </div>
           ) : (
             <div className="workspace-branch-menu" ref={menuRef}>
@@ -482,6 +507,14 @@ export function MainHeader({
                 </div>
               )}
             </div>
+          )}
+          {isRemote && (
+            <span
+              className="main-backend-indicator is-remote"
+              title={`Remote backend: ${resolvedRemoteHost}. Workspace paths resolve on the daemon host.`}
+            >
+              Remote: {resolvedRemoteHost}
+            </span>
           )}
         </div>
       </div>

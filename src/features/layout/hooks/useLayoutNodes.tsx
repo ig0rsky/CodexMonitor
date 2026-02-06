@@ -682,12 +682,14 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
     />
   );
 
-  const mainHeaderNode = options.activeWorkspace ? (
-    <MainHeader
-      workspace={options.activeWorkspace}
-      parentName={options.activeParentWorkspace?.name ?? null}
-      worktreeLabel={options.worktreeLabel}
-      worktreeRename={options.worktreeRename}
+    const mainHeaderNode = options.activeWorkspace ? (
+      <MainHeader
+        backendMode={options.backendMode}
+        remoteBackendHost={options.remoteBackendHost}
+        workspace={options.activeWorkspace}
+        parentName={options.activeParentWorkspace?.name ?? null}
+        worktreeLabel={options.worktreeLabel}
+        worktreeRename={options.worktreeRename}
       disableBranchMenu={options.isWorktreeWorkspace}
       parentPath={options.activeParentWorkspace?.path ?? null}
       worktreePath={options.isWorktreeWorkspace ? options.activeWorkspace.path : null}

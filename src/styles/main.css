@@ -447,6 +447,24 @@
   flex: 1;
 }
 
+.main-backend-indicator {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.main-backend-indicator.is-remote {
+  background: var(--surface-review-active);
+  color: var(--text-review-active);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
 .workspace-title {
   font-size: 15px;
   font-weight: 600;
@@ -527,6 +545,19 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.worktree-info-banner {
+  font-size: 11px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  line-height: 1.3;
+}
+
+.worktree-info-banner.is-remote {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: var(--text-stronger);
 }
 
 .worktree-info-title {

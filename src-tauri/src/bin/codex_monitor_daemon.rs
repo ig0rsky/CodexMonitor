@@ -19,6 +19,8 @@ mod rules;
 mod storage;
 #[path = "../shared/mod.rs"]
 mod shared;
+#[path = "../git_utils.rs"]
+mod git_utils;
 #[path = "../utils.rs"]
 mod utils;
 #[path = "../workspaces/settings.rs"]
@@ -61,18 +63,22 @@ use std::io::Read;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ignore::WalkBuilder;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::time::timeout;
 
 use backend::app_server::{
     spawn_workspace_session, WorkspaceSession,
 };
 use backend::events::{AppServerEvent, EventSink, TerminalExit, TerminalOutput};
 use storage::{read_settings, read_workspaces};
-use shared::{codex_core, files_core, git_core, settings_core, workspaces_core, worktree_core};
+use shared::{
+    codex_core, files_core, git_core, git_panel_core, settings_core, workspaces_core, worktree_core,
+};
 use shared::codex_core::CodexLoginCancelState;
 use workspace_settings::apply_workspace_settings_update;
 use types::{
@@ -80,6 +86,16 @@ use types::{
 };
 
 const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:4732";
+
+fn build_commit_message_prompt(diff: &str) -> String {
+    format!(
+        "Generate a concise git commit message for the following changes. \
+Follow conventional commit format (e.g., feat:, fix:, refactor:, docs:, etc.). \
+Keep the summary line under 72 characters. \
+Only output the commit message, nothing else.\n\n\
+Changes:\n{diff}"
+    )
+}
 
 fn spawn_with_client(
     event_sink: DaemonEventSink,
@@ -662,6 +678,167 @@ impl DaemonState {
     async fn get_config_model(&self, workspace_id: String) -> Result<Value, String> {
         codex_core::get_config_model_core(&self.workspaces, workspace_id).await
     }
+
+    async fn get_commit_message_prompt(&self, workspace_id: String) -> Result<String, String> {
+        let diff = git_panel_core::get_workspace_diff_core(&self.workspaces, &workspace_id).await?;
+        if diff.trim().is_empty() {
+            return Err("No changes to generate commit message for".to_string());
+        }
+        Ok(build_commit_message_prompt(&diff))
+    }
+
+    async fn generate_commit_message(&self, workspace_id: String) -> Result<String, String> {
+        let diff = git_panel_core::get_workspace_diff_core(&self.workspaces, &workspace_id).await?;
+        if diff.trim().is_empty() {
+            return Err("No changes to generate commit message for".to_string());
+        }
+        let prompt = build_commit_message_prompt(&diff);
+
+        let session = {
+            let sessions = self.sessions.lock().await;
+            sessions
+                .get(&workspace_id)
+                .ok_or("workspace not connected")?
+                .clone()
+        };
+
+        let thread_params = json!({
+            "cwd": session.entry.path,
+            "approvalPolicy": "never"
+        });
+        let thread_result = session.send_request("thread/start", thread_params).await?;
+
+        if let Some(error) = thread_result.get("error") {
+            let error_msg = error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error starting thread");
+            return Err(error_msg.to_string());
+        }
+
+        let thread_id = thread_result
+            .get("result")
+            .and_then(|r| r.get("threadId"))
+            .or_else(|| {
+                thread_result
+                    .get("result")
+                    .and_then(|r| r.get("thread"))
+                    .and_then(|t| t.get("id"))
+            })
+            .or_else(|| thread_result.get("threadId"))
+            .or_else(|| thread_result.get("thread").and_then(|t| t.get("id")))
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| {
+                format!(
+                    "Failed to get threadId from thread/start response: {:?}",
+                    thread_result
+                )
+            })?
+            .to_string();
+
+        // Hide background helper threads from the sidebar, even if a thread/started event leaked.
+        self.event_sink.emit_app_server_event(AppServerEvent {
+            workspace_id: workspace_id.clone(),
+            message: json!({
+                "method": "codex/backgroundThread",
+                "params": {
+                    "threadId": thread_id,
+                    "action": "hide"
+                }
+            }),
+        });
+
+        let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
+        {
+            let mut callbacks = session.background_thread_callbacks.lock().await;
+            callbacks.insert(thread_id.clone(), tx);
+        }
+
+        let turn_params = json!({
+            "threadId": thread_id,
+            "input": [{ "type": "text", "text": prompt }],
+            "cwd": session.entry.path,
+            "approvalPolicy": "never",
+            "sandboxPolicy": { "type": "readOnly" },
+        });
+        let turn_result = session.send_request("turn/start", turn_params).await;
+        let turn_result = match turn_result {
+            Ok(result) => result,
+            Err(error) => {
+                {
+                    let mut callbacks = session.background_thread_callbacks.lock().await;
+                    callbacks.remove(&thread_id);
+                }
+                let archive_params = json!({ "threadId": thread_id.as_str() });
+                let _ = session.send_request("thread/archive", archive_params).await;
+                return Err(error);
+            }
+        };
+
+        if let Some(error) = turn_result.get("error") {
+            let error_msg = error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error starting turn");
+            {
+                let mut callbacks = session.background_thread_callbacks.lock().await;
+                callbacks.remove(&thread_id);
+            }
+            let archive_params = json!({ "threadId": thread_id.as_str() });
+            let _ = session.send_request("thread/archive", archive_params).await;
+            return Err(error_msg.to_string());
+        }
+
+        let mut commit_message = String::new();
+        let timeout_duration = Duration::from_secs(60);
+        let collect_result = timeout(timeout_duration, async {
+            while let Some(event) = rx.recv().await {
+                let method = event.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                match method {
+                    "item/agentMessage/delta" => {
+                        if let Some(params) = event.get("params") {
+                            if let Some(delta) = params.get("delta").and_then(|d| d.as_str()) {
+                                commit_message.push_str(delta);
+                            }
+                        }
+                    }
+                    "turn/completed" => break,
+                    "turn/error" => {
+                        let error_msg = event
+                            .get("params")
+                            .and_then(|p| p.get("error"))
+                            .and_then(|e| e.as_str())
+                            .unwrap_or("Unknown error during commit message generation");
+                        return Err(error_msg.to_string());
+                    }
+                    _ => {}
+                }
+            }
+            Ok::<(), String>(())
+        })
+        .await;
+
+        {
+            let mut callbacks = session.background_thread_callbacks.lock().await;
+            callbacks.remove(&thread_id);
+        }
+
+        let archive_params = json!({ "threadId": thread_id });
+        let _ = session.send_request("thread/archive", archive_params).await;
+
+        match collect_result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err("Timeout waiting for commit message generation".to_string()),
+        }
+
+        let trimmed = commit_message.trim().to_string();
+        if trimmed.is_empty() {
+            return Err("No commit message was generated".to_string());
+        }
+
+        Ok(trimmed)
+    }
 }
 
 fn should_skip_dir(name: &str) -> bool {
@@ -1075,6 +1252,159 @@ async fn handle_rpc_request(
             let response = state.read_workspace_file(workspace_id, path).await?;
             serde_json::to_value(response).map_err(|err| err.to_string())
         }
+        "get_git_status" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            git_panel_core::get_git_status_core(&state.workspaces, workspace_id).await
+        }
+        "list_git_roots" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let depth = parse_optional_u32(&params, "depth").map(|value| value as usize);
+            let roots =
+                git_panel_core::list_git_roots_core(&state.workspaces, workspace_id, depth).await?;
+            serde_json::to_value(roots).map_err(|err| err.to_string())
+        }
+        "get_git_diffs" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let diffs = git_panel_core::get_git_diffs_core(
+                &state.workspaces,
+                &state.app_settings,
+                workspace_id,
+            )
+            .await?;
+            serde_json::to_value(diffs).map_err(|err| err.to_string())
+        }
+        "get_git_log" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let limit = parse_optional_u32(&params, "limit").map(|value| value as usize);
+            let log = git_panel_core::get_git_log_core(&state.workspaces, workspace_id, limit).await?;
+            serde_json::to_value(log).map_err(|err| err.to_string())
+        }
+        "get_git_commit_diff" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let sha = parse_string(&params, "sha")?;
+            let diff = git_panel_core::get_git_commit_diff_core(
+                &state.workspaces,
+                &state.app_settings,
+                workspace_id,
+                sha,
+            )
+            .await?;
+            serde_json::to_value(diff).map_err(|err| err.to_string())
+        }
+        "get_git_remote" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let remote = git_panel_core::get_git_remote_core(&state.workspaces, workspace_id).await?;
+            serde_json::to_value(remote).map_err(|err| err.to_string())
+        }
+        "stage_git_file" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let path = parse_string(&params, "path")?;
+            git_panel_core::stage_git_file_core(&state.workspaces, workspace_id, path).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "stage_git_all" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            git_panel_core::stage_git_all_core(&state.workspaces, workspace_id).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "unstage_git_file" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let path = parse_string(&params, "path")?;
+            git_panel_core::unstage_git_file_core(&state.workspaces, workspace_id, path).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "revert_git_file" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let path = parse_string(&params, "path")?;
+            git_panel_core::revert_git_file_core(&state.workspaces, workspace_id, path).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "revert_git_all" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            git_panel_core::revert_git_all_core(&state.workspaces, workspace_id).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "commit_git" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let message = parse_string(&params, "message")?;
+            git_panel_core::commit_git_core(&state.workspaces, workspace_id, message).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "push_git" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            git_panel_core::push_git_core(&state.workspaces, workspace_id).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "pull_git" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            git_panel_core::pull_git_core(&state.workspaces, workspace_id).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "fetch_git" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            git_panel_core::fetch_git_core(&state.workspaces, workspace_id).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "sync_git" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            git_panel_core::sync_git_core(&state.workspaces, workspace_id).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "get_github_issues" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let issues = git_panel_core::get_github_issues_core(&state.workspaces, workspace_id).await?;
+            serde_json::to_value(issues).map_err(|err| err.to_string())
+        }
+        "get_github_pull_requests" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let pulls =
+                git_panel_core::get_github_pull_requests_core(&state.workspaces, workspace_id).await?;
+            serde_json::to_value(pulls).map_err(|err| err.to_string())
+        }
+        "get_github_pull_request_diff" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let pr_number = params
+                .get("prNumber")
+                .and_then(|value| value.as_u64())
+                .ok_or("missing or invalid `prNumber`")?;
+            let diff = git_panel_core::get_github_pull_request_diff_core(
+                &state.workspaces,
+                workspace_id,
+                pr_number,
+            )
+            .await?;
+            serde_json::to_value(diff).map_err(|err| err.to_string())
+        }
+        "get_github_pull_request_comments" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let pr_number = params
+                .get("prNumber")
+                .and_then(|value| value.as_u64())
+                .ok_or("missing or invalid `prNumber`")?;
+            let comments = git_panel_core::get_github_pull_request_comments_core(
+                &state.workspaces,
+                workspace_id,
+                pr_number,
+            )
+            .await?;
+            serde_json::to_value(comments).map_err(|err| err.to_string())
+        }
+        "list_git_branches" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            git_panel_core::list_git_branches_core(&state.workspaces, workspace_id).await
+        }
+        "checkout_git_branch" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let name = parse_string(&params, "name")?;
+            git_panel_core::checkout_git_branch_core(&state.workspaces, workspace_id, name).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "create_git_branch" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let name = parse_string(&params, "name")?;
+            git_panel_core::create_git_branch_core(&state.workspaces, workspace_id, name).await?;
+            Ok(json!({ "ok": true }))
+        }
         "file_read" => {
             let request = parse_file_read_request(&params)?;
             let response = state
@@ -1244,6 +1574,16 @@ async fn handle_rpc_request(
             state
                 .respond_to_server_request(workspace_id, request_id, result)
                 .await
+        }
+        "get_commit_message_prompt" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let prompt = state.get_commit_message_prompt(workspace_id).await?;
+            serde_json::to_value(prompt).map_err(|err| err.to_string())
+        }
+        "generate_commit_message" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let message = state.generate_commit_message(workspace_id).await?;
+            serde_json::to_value(message).map_err(|err| err.to_string())
         }
         "remember_approval_rule" => {
             let workspace_id = parse_string(&params, "workspaceId")?;
