@@ -83,28 +83,34 @@ pub(crate) fn is_missing_worktree_error(error: &str) -> bool {
     error.contains("is not a working tree")
 }
 
-pub(crate) async fn git_branch_exists(repo_path: &PathBuf, branch: &str) -> Result<bool, String> {
+async fn git_command_success(repo_path: &PathBuf, args: &[&str]) -> Result<bool, String> {
     let git_bin = resolve_git_binary().map_err(|err| format!("Failed to run git: {err}"))?;
-    let status = tokio_command(git_bin)
-        .args(["show-ref", "--verify", &format!("refs/heads/{branch}")])
+    let output = tokio_command(git_bin)
+        .args(args)
         .current_dir(repo_path)
         .env("PATH", git_env_path())
-        .status()
+        // Capture output so "fatal:" messages don't leak to daemon tmux/stdout.
+        .output()
         .await
         .map_err(|err| format!("Failed to run git: {err}"))?;
-    Ok(status.success())
+    Ok(output.status.success())
+}
+
+pub(crate) async fn git_branch_exists(repo_path: &PathBuf, branch: &str) -> Result<bool, String> {
+    git_command_success(
+        repo_path,
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .await
 }
 
 pub(crate) async fn git_remote_exists(repo_path: &PathBuf, remote: &str) -> Result<bool, String> {
-    let git_bin = resolve_git_binary().map_err(|err| format!("Failed to run git: {err}"))?;
-    let status = tokio_command(git_bin)
-        .args(["remote", "get-url", remote])
-        .current_dir(repo_path)
-        .env("PATH", git_env_path())
-        .status()
-        .await
-        .map_err(|err| format!("Failed to run git: {err}"))?;
-    Ok(status.success())
+    git_command_success(repo_path, &["remote", "get-url", remote]).await
 }
 
 pub(crate) async fn git_remote_branch_exists_live(
@@ -136,19 +142,16 @@ pub(crate) async fn git_remote_branch_exists_local(
     remote: &str,
     branch: &str,
 ) -> Result<bool, String> {
-    let git_bin = resolve_git_binary().map_err(|err| format!("Failed to run git: {err}"))?;
-    let status = tokio_command(git_bin)
-        .args([
+    git_command_success(
+        repo_path,
+        &[
             "show-ref",
             "--verify",
+            "--quiet",
             &format!("refs/remotes/{remote}/{branch}"),
-        ])
-        .current_dir(repo_path)
-        .env("PATH", git_env_path())
-        .status()
-        .await
-        .map_err(|err| format!("Failed to run git: {err}"))?;
-    Ok(status.success())
+        ],
+    )
+    .await
 }
 
 pub(crate) async fn git_list_remotes(repo_path: &PathBuf) -> Result<Vec<String>, String> {

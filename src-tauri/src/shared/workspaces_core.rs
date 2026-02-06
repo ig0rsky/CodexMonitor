@@ -341,6 +341,10 @@ where
     let worktree_path_string = worktree_path.to_string_lossy().to_string();
 
     let repo_path = PathBuf::from(&parent_entry.path);
+    // Friendly early validation before we start checking for existence or creating worktrees.
+    // This also avoids confusing git stderr in daemon logs for obviously invalid input.
+    run_git_command(&repo_path, &["check-ref-format", "--branch", &branch]).await?;
+
     let branch_exists = git_branch_exists(&repo_path, &branch).await?;
     if branch_exists {
         run_git_command(
