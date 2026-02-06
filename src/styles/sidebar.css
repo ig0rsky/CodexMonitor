@@ -86,7 +86,7 @@
 
 .sidebar-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: 0;
   margin-bottom: 0;
@@ -94,9 +94,10 @@
 }
 
 .sidebar-header-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -122,7 +123,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 240px;
+  max-width: 100%;
 }
 
 .sidebar-backend-indicator.is-remote {
@@ -166,6 +167,7 @@
   align-items: center;
   gap: 6px;
   margin-left: auto;
+  padding-top: 2px;
 }
 
 .sidebar-sort-menu {
