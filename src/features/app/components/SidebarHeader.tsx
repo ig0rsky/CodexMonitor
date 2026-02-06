@@ -4,12 +4,14 @@ import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
 import ListFilter from "lucide-react/dist/esm/icons/list-filter";
 import Search from "lucide-react/dist/esm/icons/search";
 import { useRef, useState } from "react";
-import type { ThreadListSortKey } from "../../../types";
+import type { BackendMode, ThreadListSortKey } from "../../../types";
 import { useDismissibleMenu } from "../hooks/useDismissibleMenu";
 
 type SidebarHeaderProps = {
   onSelectHome: () => void;
   onAddWorkspace: () => void;
+  backendMode: BackendMode;
+  remoteBackendHost: string;
   onToggleSearch: () => void;
   isSearchOpen: boolean;
   threadListSortKey: ThreadListSortKey;
@@ -19,6 +21,8 @@ type SidebarHeaderProps = {
 export function SidebarHeader({
   onSelectHome,
   onAddWorkspace,
+  backendMode,
+  remoteBackendHost,
   onToggleSearch,
   isSearchOpen,
   threadListSortKey,
@@ -40,6 +44,8 @@ export function SidebarHeader({
     }
     onSetThreadListSortKey(sortKey);
   };
+
+  const resolvedRemoteHost = remoteBackendHost.trim() || "127.0.0.1:4732";
 
   return (
     <div className="sidebar-header">
@@ -63,6 +69,14 @@ export function SidebarHeader({
             Projects
           </button>
         </div>
+        {backendMode === "remote" && (
+          <div
+            className="sidebar-backend-indicator is-remote"
+            title={`Remote backend: ${resolvedRemoteHost}. Workspace paths resolve on the daemon host.`}
+          >
+            Remote: {resolvedRemoteHost}
+          </div>
+        )}
       </div>
       <div className="sidebar-header-actions">
         <div className="sidebar-sort-menu" ref={sortMenuRef}>

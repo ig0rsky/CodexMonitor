@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
@@ -8,6 +9,27 @@ use crate::dictation::DictationState;
 use crate::shared::codex_core::CodexLoginCancelState;
 use crate::storage::{read_settings, read_workspaces};
 use crate::types::{AppSettings, WorkspaceEntry};
+
+pub(crate) fn resolve_app_data_dir(app: &AppHandle) -> PathBuf {
+    if let Ok(value) = env::var("CODEX_MONITOR_DATA_DIR") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+
+    // In dev (debug) builds, keep state isolated from the installed app instance.
+    if cfg!(debug_assertions) {
+        return data_dir.join("dev");
+    }
+
+    data_dir
+}
 
 pub(crate) struct AppState {
     pub(crate) workspaces: Mutex<HashMap<String, WorkspaceEntry>>,
@@ -24,10 +46,7 @@ pub(crate) struct AppState {
 
 impl AppState {
     pub(crate) fn load(app: &AppHandle) -> Self {
-        let data_dir = app
-            .path()
-            .app_data_dir()
-            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+        let data_dir = resolve_app_data_dir(app);
         let storage_path = data_dir.join("workspaces.json");
         let settings_path = data_dir.join("settings.json");
         let workspaces = read_workspaces(&storage_path).unwrap_or_default();

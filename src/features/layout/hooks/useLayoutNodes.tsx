@@ -23,6 +23,7 @@ import type { WorkspaceLaunchScriptsState } from "../../app/hooks/useWorkspaceLa
 import type {
   AccessMode,
   ApprovalRequest,
+  BackendMode,
   BranchInfo,
   CollaborationModeOption,
   ConversationItem,
@@ -96,6 +97,8 @@ type WorktreeRenameState = {
 };
 
 type LayoutNodesOptions = {
+  backendMode: BackendMode;
+  remoteBackendHost: string;
   workspaces: WorkspaceInfo[];
   groupedWorkspaces: Array<{
     id: string | null;
@@ -476,6 +479,8 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
 
   const sidebarNode = (
     <Sidebar
+      backendMode={options.backendMode}
+      remoteBackendHost={options.remoteBackendHost}
       workspaces={options.workspaces}
       groupedWorkspaces={options.groupedWorkspaces}
       hasWorkspaceGroups={options.hasWorkspaceGroups}

@@ -111,6 +111,25 @@
   min-width: 0;
 }
 
+.sidebar-backend-indicator {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-card-strong);
+  color: var(--text-quiet);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.sidebar-backend-indicator.is-remote {
+  background: var(--surface-review-active);
+  color: var(--text-review-active);
+}
+
 .sidebar-title-add {
   display: inline-flex;
   align-items: center;

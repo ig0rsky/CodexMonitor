@@ -6,7 +6,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use serde_json::json;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
@@ -311,10 +311,7 @@ pub(crate) async fn add_worktree(
         return serde_json::from_value(response).map_err(|err| err.to_string());
     }
 
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|err| format!("Failed to resolve app data dir: {err}"))?;
+    let data_dir = crate::state::resolve_app_data_dir(&app);
 
     workspaces_core::add_worktree_core(
         parent_id,
@@ -363,10 +360,7 @@ pub(crate) async fn worktree_setup_status(
         return serde_json::from_value(response).map_err(|err| err.to_string());
     }
 
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|err| format!("Failed to resolve app data dir: {err}"))?;
+    let data_dir = crate::state::resolve_app_data_dir(&app);
     workspaces_core::worktree_setup_status_core(&state.workspaces, &workspace_id, &data_dir).await
 }
 
@@ -387,10 +381,7 @@ pub(crate) async fn worktree_setup_mark_ran(
         return Ok(());
     }
 
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|err| format!("Failed to resolve app data dir: {err}"))?;
+    let data_dir = crate::state::resolve_app_data_dir(&app);
     workspaces_core::worktree_setup_mark_ran_core(&state.workspaces, &workspace_id, &data_dir)
         .await
 }
@@ -478,10 +469,7 @@ pub(crate) async fn rename_worktree(
         return serde_json::from_value(response).map_err(|err| err.to_string());
     }
 
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|err| format!("Failed to resolve app data dir: {err}"))?;
+    let data_dir = crate::state::resolve_app_data_dir(&app);
 
     workspaces_core::rename_worktree_core(
         id,

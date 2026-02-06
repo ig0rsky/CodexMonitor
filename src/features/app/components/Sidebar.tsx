@@ -1,5 +1,6 @@
 import type {
   AccountSnapshot,
+  BackendMode,
   RateLimitSnapshot,
   ThreadListSortKey,
   ThreadSummary,
@@ -38,6 +39,8 @@ type WorkspaceGroupSection = {
 };
 
 type SidebarProps = {
+  backendMode: BackendMode;
+  remoteBackendHost: string;
   workspaces: WorkspaceInfo[];
   groupedWorkspaces: WorkspaceGroupSection[];
   hasWorkspaceGroups: boolean;
@@ -96,6 +99,8 @@ type SidebarProps = {
 };
 
 export function Sidebar({
+  backendMode,
+  remoteBackendHost,
   workspaces,
   groupedWorkspaces,
   hasWorkspaceGroups,
@@ -403,6 +408,8 @@ export function Sidebar({
       <SidebarHeader
         onSelectHome={onSelectHome}
         onAddWorkspace={onAddWorkspace}
+        backendMode={backendMode}
+        remoteBackendHost={remoteBackendHost}
         onToggleSearch={() => setIsSearchOpen((prev) => !prev)}
         isSearchOpen={isSearchOpen}
         threadListSortKey={threadListSortKey}

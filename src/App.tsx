@@ -1816,6 +1816,8 @@ function MainApp() {
     compactEmptyGitNode,
     compactGitBackNode,
   } = useLayoutNodes({
+    backendMode: appSettings.backendMode,
+    remoteBackendHost: appSettings.remoteBackendHost,
     workspaces,
     groupedWorkspaces,
     hasWorkspaceGroups: workspaceGroups.length > 0,

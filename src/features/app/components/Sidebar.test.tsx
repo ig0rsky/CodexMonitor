@@ -14,6 +14,8 @@ afterEach(() => {
 });
 
 const baseProps = {
+  backendMode: "local" as const,
+  remoteBackendHost: "127.0.0.1:4732",
   workspaces: [],
   groupedWorkspaces: [],
   hasWorkspaceGroups: false,

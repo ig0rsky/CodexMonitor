@@ -239,9 +239,7 @@ impl Default for DictationState {
 }
 
 fn model_dir(app: &AppHandle) -> PathBuf {
-    app.path()
-        .app_data_dir()
-        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| ".".into()))
+    crate::state::resolve_app_data_dir(app)
         .join("models")
         .join("whisper")
 }
