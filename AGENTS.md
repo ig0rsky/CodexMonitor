@@ -297,6 +297,12 @@ At the end of a task:
 3. Run `npm run typecheck`.
 4. If you changed Rust backend code, run `cargo check` in `src-tauri`.
 
+## Git + PR Policy
+
+- Never open PRs against public upstream repositories.
+- Default workflow: push a branch to the `ig0rsky/*` fork and stop.
+- Do not create PRs (including in forks) unless the user explicitly asks.
+
 ## Notes
 
 - The window uses `titleBarStyle: "Overlay"` and macOS private APIs for transparency.
